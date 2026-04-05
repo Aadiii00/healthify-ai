@@ -33,11 +33,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const fetchUserDetails = async (userId: string) => {
-    const [rolesRes, patientRes, doctorRes] = await Promise.all([
+    let [rolesRes, patientRes, doctorRes] = await Promise.all([
       supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle(),
       supabase.from("patients").select("id").eq("user_id", userId).maybeSingle(),
       supabase.from("doctors").select("id").eq("user_id", userId).maybeSingle(),
     ]);
+
+    // Auto-create missing roles and patient records for smooth UX
+    if (!rolesRes.data && !rolesRes.error) {
+      await supabase.from("user_roles").insert({ user_id: userId, role: "patient" });
+      rolesRes = await supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
+    }
+
+    if (!patientRes.data && (!rolesRes.data || rolesRes.data.role === "patient")) {
+      await supabase.from("patients").insert({ 
+        user_id: userId, 
+        full_name: user?.user_metadata?.name || "Anonymous Patient" 
+      });
+      patientRes = await supabase.from("patients").select("id").eq("user_id", userId).maybeSingle();
+    }
+
     if (rolesRes.data) setRole(rolesRes.data.role as UserRole);
     if (patientRes.data) setPatientId(patientRes.data.id);
     if (doctorRes.data) setDoctorId(doctorRes.data.id);

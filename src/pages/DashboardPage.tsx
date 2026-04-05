@@ -11,14 +11,8 @@ const DashboardPage = () => {
     <MainLayout>
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
-          <h1 className="font-heading text-3xl font-bold">
-            Welcome back{user?.user_metadata?.name ? `, ${user.user_metadata.name}` : ""}
-          </h1>
-          <p className="text-muted-foreground">
-            {role === "doctor" ? "Manage your patients and appointments" :
-             role === "admin" ? "System administration panel" :
-             "Monitor your health and manage appointments"}
-          </p>
+          <h1 className="font-heading text-3xl font-bold">Health Dashboard</h1>
+          <p className="text-muted-foreground mt-2 text-lg">Your real-time health insights powered by AI</p>
         </div>
 
         {role === "doctor" ? <DoctorDashboard /> :

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Activity, Brain, Calendar, FileText, Shield, Stethoscope } from "lucide-react";
 import { MainLayout } from "@/layouts/MainLayout";
+import { SymptomFormSection } from "@/components/SymptomFormSection";
 
 const features = [
   { icon: Brain, title: "AI Symptom Analysis", desc: "Get instant AI-powered health insights based on your symptoms" },
@@ -21,16 +22,14 @@ const LandingPage = () => {
           <div className="mx-auto max-w-3xl animate-fade-in">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-2 text-sm font-medium text-primary">
               <Brain className="h-4 w-4" />
-              AI-Powered Health Analysis
+              Smarter Health Decisions, Instantly
             </div>
             <h1 className="mb-6 font-heading text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-              Your Health,{" "}
-              <span className="text-gradient-medical">Intelligently</span>{" "}
-              Analyzed
+              Take Control of Your Health with{" "}
+              <span className="text-gradient-medical">AI</span>
             </h1>
             <p className="mb-8 text-lg text-muted-foreground sm:text-xl">
-              Describe your symptoms and get instant AI-powered health insights. 
-              Connect with specialists and manage your healthcare journey — all in one place.
+              Analyze symptoms, track your health, and connect with doctors — all powered by intelligent insights.
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link to="/auth?mode=signup">
@@ -76,11 +75,14 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* Symptom Analysis Form */}
+      <SymptomFormSection />
+
       {/* CTA */}
       <section className="border-t border-border bg-gradient-hero py-16">
         <div className="container mx-auto px-4 text-center">
           <h2 className="mb-4 font-heading text-2xl font-bold">Ready to Take Control of Your Health?</h2>
-          <p className="mb-6 text-muted-foreground">Join thousands who trust MediCheck AI for their health insights</p>
+          <p className="mb-6 text-muted-foreground">Join thousands who trust Healthify AI for their health insights</p>
           <Link to="/auth?mode=signup">
             <Button size="lg" className="shadow-medical">Get Started — It's Free</Button>
           </Link>
@@ -92,9 +94,9 @@ const LandingPage = () => {
         <div className="container mx-auto flex flex-col items-center justify-between gap-4 px-4 text-sm text-muted-foreground sm:flex-row">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-primary" />
-            <span className="font-heading font-semibold">MediCheck AI</span>
+            <span className="font-heading font-semibold">Healthify AI</span>
           </div>
-          <p>© {new Date().getFullYear()} MediCheck AI. For informational purposes only.</p>
+          <p>© 2026 Healthify AI. All rights reserved. <br className="sm:hidden"/> AI-powered healthcare for everyone.</p>
         </div>
       </footer>
     </MainLayout>

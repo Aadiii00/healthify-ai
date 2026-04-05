@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { sendNotification, RECIPIENT_PHONE } from "@/lib/webhook";
+
 import { MainLayout } from "@/layouts/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Brain, AlertTriangle, CheckCircle, Info, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { HealthChatComponent } from "@/components/HealthChatComponent";
 
 interface AnalysisResult {
   disease: string;
@@ -47,12 +50,81 @@ const SymptomCheckerPage = () => {
     setResults([]);
     try {
       const { data, error } = await supabase.functions.invoke("analyze-symptoms-ai", {
-        body: { symptoms },
+        body: { symptoms: symptoms.trim() },
       });
+
       if (error) throw error;
-      if (data.error) throw new Error(data.error);
-      setResults(data.results || []);
-      setDisclaimer(data.disclaimer || "");
+      if (!data?.results) throw new Error("No response content from AI");
+
+      const analysisResults = data.results as AnalysisResult[];
+      setResults(analysisResults);
+      setDisclaimer(data.disclaimer);
+
+      // Check for serious symptoms
+      const hasSevere = analysisResults.some(r => r.severity.toLowerCase() === "severe");
+      if (hasSevere) {
+        toast({
+          title: "Urgent: Serious Symptoms Detected",
+          description: "One or more identified conditions are marked as severe. Please seek medical attention immediately.",
+          variant: "destructive",
+        });
+      }
+
+      // Save the top result to medical records automatically
+      if (analysisResults.length > 0) {
+        const topResult = analysisResults[0];
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData?.user) {
+          // Get patient_id
+          const { data: patient } = await supabase
+            .from("patients")
+            .select("id")
+            .eq("user_id", userData.user.id)
+            .maybeSingle();
+
+          if (patient) {
+            const { error: saveError } = await supabase.from("medical_records").insert({
+              patient_id: patient.id,
+              diagnosis: topResult.disease,
+              notes: topResult.description,
+              symptoms: symptoms.trim(),
+              probability: topResult.probability,
+              prescription: topResult.recommendation,
+            });
+
+            if (saveError) {
+              console.error("Failed to save record:", saveError);
+              toast({ title: "Note saved to UI", description: "Analysis successful but failed to save to history.", variant: "destructive" });
+            } else {
+              toast({ title: "Analysis Saved", description: "Your symptoms and analysis have been added to your medical records." });
+              
+              // 1. Send Notification for Diagnosis
+              const userEmail = userData.user.email || "user@gmail.com";
+              sendNotification(RECIPIENT_PHONE, `Your diagnosis result: ${topResult.disease}. Please take necessary precautions.`, userEmail);
+
+              // 2. Health Alerts Logic (Repeated symptoms)
+              // Fetch records from the last 7 days
+              const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+              const { data: recentRecords } = await supabase
+                .from("medical_records")
+                .select("id, diagnosis")
+                .eq("patient_id", patient.id)
+                .gte("created_at", sevenDaysAgo);
+
+              if (recentRecords) {
+                const sameSymptomCount = recentRecords.filter(r => 
+                  r.diagnosis.toLowerCase().includes(topResult.disease.toLowerCase()) ||
+                  topResult.disease.toLowerCase().includes(r.diagnosis.toLowerCase())
+                ).length;
+
+                if (sameSymptomCount >= 3) {
+                  sendNotification(RECIPIENT_PHONE, "You reported symptoms multiple times. Please consult a doctor.", userEmail);
+                }
+              }
+            }
+          }
+        }
+      }
     } catch (err: any) {
       toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
     } finally {
@@ -70,8 +142,8 @@ const SymptomCheckerPage = () => {
 
   const probColor = (p: number) => {
     if (p >= 70) return "text-destructive";
-    if (p >= 40) return "text-warning";
-    return "text-success";
+    if (p >= 40) return "text-yellow-600";
+    return "text-green-600";
   };
 
   return (
@@ -82,7 +154,7 @@ const SymptomCheckerPage = () => {
             <Brain className="h-8 w-8 text-primary-foreground" />
           </div>
           <h1 className="font-heading text-3xl font-bold">AI Symptom Checker</h1>
-          <p className="text-muted-foreground">Describe your symptoms to get AI-powered health insights</p>
+          <p className="text-muted-foreground mt-2 text-lg">Describe your symptoms and get instant AI-powered insights</p>
         </div>
 
         <Card className="mb-8">
@@ -166,6 +238,7 @@ const SymptomCheckerPage = () => {
           </div>
         )}
       </div>
+      <HealthChatComponent context={{ symptoms, results }} />
     </MainLayout>
   );
 };

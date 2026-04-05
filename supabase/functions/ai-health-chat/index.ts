@@ -13,9 +13,6 @@ serve(async (req) => {
   try {
     const { messages, context } = await req.json();
     
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") || "AIzaSyCiHQxxRafrhyDeXQEGwwUiRKP8RaASqMM";
-    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
-
     const systemPrompt = `You are MediCheck AI, a helpful and professional health assistant. 
     The user is asking follow-up questions about their recent symptom analysis.
     Context from analysis: ${JSON.stringify(context)}
@@ -24,7 +21,18 @@ serve(async (req) => {
     ALWAYS remind the user that you are an AI and not a doctor.
     If symptoms sound serious (breathing difficulty, chest pain, etc.), STRONGLY advise seeking immediate medical attention.`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    // Securely retrieve key from environment
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    
+    if (!GEMINI_API_KEY) {
+      console.error("GEMINI_API_KEY is not configured in Supabase secrets");
+      return new Response(JSON.stringify({ error: "AI Service Configuration Error" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

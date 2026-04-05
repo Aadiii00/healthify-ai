@@ -11,6 +11,13 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    proxy: {
+      "/api/analyze": {
+        target: "https://vcminwfbnkindhdvxlmx.supabase.co/functions/v1/analyze-symptoms-ai",
+        changeOrigin: true,
+        rewrite: (path) => "", // The Supabase Edge Function is the target itself
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

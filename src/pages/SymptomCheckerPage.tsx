@@ -1,22 +1,38 @@
 import { useState } from "react";
-import { sendNotification, RECIPIENT_PHONE } from "@/lib/webhook";
-
 import { MainLayout } from "@/layouts/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Brain, AlertTriangle, CheckCircle, Info, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Progress } from "@/components/ui/progress";
+import { 
+  Brain, 
+  AlertTriangle, 
+  CheckCircle, 
+  Info, 
+  Loader2, 
+  Activity, 
+  Stethoscope, 
+  ArrowRight,
+  ShieldAlert,
+  ChevronRight,
+  RotateCcw
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { HealthChatComponent } from "@/components/HealthChatComponent";
 
-interface AnalysisResult {
+interface ConditionResult {
   disease: string;
   probability: number;
   description: string;
-  severity: string;
+  severity: "mild" | "moderate" | "severe";
   recommendation: string;
+}
+
+interface AnalysisResponse {
+  results: ConditionResult[];
+  disclaimer: string;
+  error?: string;
 }
 
 const commonSymptoms = [
@@ -27,9 +43,9 @@ const commonSymptoms = [
 
 const SymptomCheckerPage = () => {
   const [symptoms, setSymptoms] = useState("");
-  const [results, setResults] = useState<AnalysisResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [analysisResults, setAnalysisResults] = useState<ConditionResult[] | null>(null);
   const [disclaimer, setDisclaimer] = useState("");
+  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
   const toggleSymptom = (s: string) => {
@@ -47,198 +63,247 @@ const SymptomCheckerPage = () => {
       return;
     }
     setLoading(true);
-    setResults([]);
+    setAnalysisResults(null);
     try {
-      const { data, error } = await supabase.functions.invoke("analyze-symptoms-ai", {
-        body: { symptoms: symptoms.trim() },
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symptoms: symptoms.trim() }),
       });
 
-      if (error) throw error;
-      if (!data?.results) throw new Error("No response content from AI");
-
-      const analysisResults = data.results as AnalysisResult[];
-      setResults(analysisResults);
-      setDisclaimer(data.disclaimer);
-
-      // Check for serious symptoms
-      const hasSevere = analysisResults.some(r => r.severity.toLowerCase() === "severe");
-      if (hasSevere) {
-        toast({
-          title: "Urgent: Serious Symptoms Detected",
-          description: "One or more identified conditions are marked as severe. Please seek medical attention immediately.",
-          variant: "destructive",
-        });
+      if (!response.ok) {
+        throw new Error(`API failed with status ${response.status}`);
       }
 
-      // Save the top result to medical records automatically
-      if (analysisResults.length > 0) {
-        const topResult = analysisResults[0];
-        const { data: userData } = await supabase.auth.getUser();
-        if (userData?.user) {
-          // Get patient_id
-          const { data: patient } = await supabase
-            .from("patients")
-            .select("id")
-            .eq("user_id", userData.user.id)
-            .maybeSingle();
-
-          if (patient) {
-            const { error: saveError } = await supabase.from("medical_records").insert({
-              patient_id: patient.id,
-              diagnosis: topResult.disease,
-              notes: topResult.description,
-              symptoms: symptoms.trim(),
-              probability: topResult.probability,
-              prescription: topResult.recommendation,
-            });
-
-            if (saveError) {
-              console.error("Failed to save record:", saveError);
-              toast({ title: "Note saved to UI", description: "Analysis successful but failed to save to history.", variant: "destructive" });
-            } else {
-              toast({ title: "Analysis Saved", description: "Your symptoms and analysis have been added to your medical records." });
-              
-              // 1. Send Notification for Diagnosis
-              const userEmail = userData.user.email || "user@gmail.com";
-              sendNotification(RECIPIENT_PHONE, `Your diagnosis result: ${topResult.disease}. Please take necessary precautions.`, userEmail);
-
-              // 2. Health Alerts Logic (Repeated symptoms)
-              // Fetch records from the last 7 days
-              const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-              const { data: recentRecords } = await supabase
-                .from("medical_records")
-                .select("id, diagnosis")
-                .eq("patient_id", patient.id)
-                .gte("created_at", sevenDaysAgo);
-
-              if (recentRecords) {
-                const sameSymptomCount = recentRecords.filter(r => 
-                  r.diagnosis.toLowerCase().includes(topResult.disease.toLowerCase()) ||
-                  topResult.disease.toLowerCase().includes(r.diagnosis.toLowerCase())
-                ).length;
-
-                if (sameSymptomCount >= 3) {
-                  sendNotification(RECIPIENT_PHONE, "You reported symptoms multiple times. Please consult a doctor.", userEmail);
-                }
-              }
-            }
-          }
-        }
+      const data: AnalysisResponse = await response.json();
+      
+      if (data.error) {
+        toast({ title: "Validation Error", description: data.error, variant: "destructive" });
+      } else {
+        setAnalysisResults(data.results);
+        setDisclaimer(data.disclaimer);
+        toast({ title: "Analysis Complete", description: "AI has successfully analyzed your symptoms." });
       }
+
     } catch (err: any) {
+      console.error("Analysis Error:", err);
       toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
 
-  const severityColor = (s: string) => {
-    switch (s?.toLowerCase()) {
-      case "severe": return "destructive";
-      case "moderate": return "secondary";
-      default: return "outline";
-    }
+  const reset = () => {
+    setSymptoms("");
+    setAnalysisResults(null);
   };
 
-  const probColor = (p: number) => {
-    if (p >= 70) return "text-destructive";
-    if (p >= 40) return "text-yellow-600";
-    return "text-green-600";
+  const getSeverityColor = (severity: string) => {
+    switch (severity.toLowerCase()) {
+      case "severe": return "bg-destructive/10 text-destructive border-destructive/20";
+      case "moderate": return "bg-orange-500/10 text-orange-600 border-orange-500/20";
+      case "mild": return "bg-emerald-500/10 text-emerald-600 border-emerald-500/20";
+      default: return "bg-slate-100 text-slate-600 border-slate-200";
+    }
   };
 
   return (
     <MainLayout>
-      <div className="container mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-medical">
-            <Brain className="h-8 w-8 text-primary-foreground" />
+      <div className="container mx-auto max-w-5xl px-4 py-12">
+        <div className="mb-12 text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-medical shadow-xl transform hover:scale-105 transition-transform">
+            <Brain className="h-10 w-10 text-white" />
           </div>
-          <h1 className="font-heading text-3xl font-bold">AI Symptom Checker</h1>
-          <p className="text-muted-foreground mt-2 text-lg">Describe your symptoms and get instant AI-powered insights</p>
+          <h1 className="font-heading text-4xl font-bold tracking-tight text-slate-900 mb-4">Clinical AI Symptom Checker</h1>
+          <p className="text-slate-600 max-w-2xl mx-auto text-lg leading-relaxed">
+            Get instant, AI-driven diagnostic insights by describing your symptoms. Our advanced model analyzes patterns to provide specialized health guidance.
+          </p>
         </div>
 
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="text-lg">Select or describe your symptoms</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {commonSymptoms.map(s => {
-                const active = symptoms.split(",").map(x => x.trim()).includes(s);
-                return (
-                  <button
-                    key={s}
-                    onClick={() => toggleSymptom(s)}
-                    className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-all ${
-                      active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card text-foreground hover:border-primary/50"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                );
-              })}
-            </div>
-            <Textarea
-              value={symptoms}
-              onChange={(e) => setSymptoms(e.target.value)}
-              placeholder="e.g., fever, headache, sore throat, body aches..."
-              className="min-h-[100px]"
-            />
-            <Button onClick={analyze} disabled={loading} className="w-full shadow-medical" size="lg">
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing...
-                </>
-              ) : (
-                <>
-                  <Brain className="mr-2 h-4 w-4" /> Analyze Symptoms
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {results.length > 0 && (
-          <div className="space-y-4">
-            <h2 className="font-heading text-xl font-semibold">Analysis Results</h2>
-            {results.map((r, i) => (
-              <Card key={i} className="overflow-hidden border-border/50 transition-all hover:shadow-md">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="mb-2 flex items-center gap-3">
-                        <h3 className="font-heading text-lg font-semibold">{r.disease}</h3>
-                        <Badge variant={severityColor(r.severity)}>{r.severity}</Badge>
-                      </div>
-                      <p className="mb-3 text-sm text-muted-foreground">{r.description}</p>
-                      <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-3">
-                        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                        <p className="text-sm">{r.recommendation}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className={`font-heading text-3xl font-bold ${probColor(r.probability)}`}>
-                        {r.probability}%
-                      </span>
-                      <p className="text-xs text-muted-foreground">probability</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-
-            {disclaimer && (
-              <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-                <p className="text-sm text-muted-foreground">{disclaimer}</p>
+        {!analysisResults ? (
+          <Card className="border-none shadow-premium bg-white/80 backdrop-blur-sm overflow-hidden anim-fade-in relative">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-medical" />
+            <CardHeader className="pt-10 pb-6 px-10">
+              <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                <Activity className="h-6 w-6 text-primary" />
+                Describe your condition
+              </CardTitle>
+              <CardDescription className="text-base">
+                Select from common symptoms or describe how you feel in your own words.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-8 px-10 pb-12">
+              <div className="space-y-4">
+                <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Common Symptoms</p>
+                <div className="flex flex-wrap gap-2.5">
+                  {commonSymptoms.map(s => {
+                    const active = symptoms.split(",").map(x => x.trim()).includes(s);
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => toggleSymptom(s)}
+                        className={`rounded-xl border-2 px-5 py-2.5 text-sm font-semibold transition-all duration-300 ${
+                          active
+                            ? "border-primary bg-primary text-white shadow-lg scale-105"
+                            : "border-slate-100 bg-slate-50/50 text-slate-600 hover:border-primary/40 hover:bg-white"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            )}
+
+              <div className="space-y-4">
+                <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Detailed Description</p>
+                <div className="relative group">
+                  <Textarea
+                    value={symptoms}
+                    onChange={(e) => setSymptoms(e.target.value)}
+                    placeholder="Describe your symptoms, their duration, and any discomfort you're experiencing..."
+                    className="min-h-[160px] text-lg p-6 rounded-2xl border-2 border-slate-100 focus:border-primary/50 transition-all bg-slate-50/30 group-hover:bg-white resize-none"
+                  />
+                  {!symptoms && (
+                    <div className="absolute bottom-6 right-6 flex items-center gap-2 text-slate-300 pointer-events-none transition-opacity group-hover:opacity-100 opacity-50">
+                      <Stethoscope className="h-5 w-5" />
+                      <span className="text-sm font-medium">Type to analyze</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Button 
+                onClick={analyze} 
+                disabled={loading} 
+                className="w-full h-16 rounded-2xl text-xl font-bold transition-all shadow-xl hover:shadow-primary/20 active:scale-[0.98]" 
+                size="lg"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-3 h-6 w-6 animate-spin text-white" /> 
+                    Analysis in Progress...
+                  </>
+                ) : (
+                  <>
+                    <Brain className="mr-3 h-6 w-6 text-white" /> 
+                    Start AI Diagnostic
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-10 anim-fade-in">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-heading text-3xl font-bold text-slate-900">Diagnostic Insights</h2>
+                <p className="text-slate-500 mt-1">Based on your reported symptoms: <span className="font-semibold text-primary">{symptoms}</span></p>
+              </div>
+              <Button variant="outline" onClick={reset} className="rounded-xl px-6 border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold h-12 flex items-center gap-2">
+                <RotateCcw className="h-4 w-4" /> Reset Analysis
+              </Button>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-1">
+              {analysisResults.map((result, idx) => (
+                <Card 
+                  key={idx} 
+                  className="group relative overflow-hidden border-none shadow-premium bg-white hover:shadow-2xl transition-all duration-500 rounded-3xl"
+                  style={{ animationDelay: `${idx * 150}ms` }}
+                >
+                  <div className={`absolute top-0 left-0 w-2 h-full ${
+                    result.severity === "severe" ? "bg-destructive" : result.severity === "moderate" ? "bg-orange-500" : "bg-emerald-500"
+                  }`} />
+                  
+                  <CardHeader className="px-8 pt-8 pb-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
+                      <Badge className={`rounded-xl px-4 py-1.5 text-sm font-bold border-2 ${getSeverityColor(result.severity)}`}>
+                        {result.severity.toUpperCase()} SEVERITY
+                      </Badge>
+                      <div className="flex items-center gap-3 text-slate-400 font-bold bg-slate-50 px-4 py-1.5 rounded-xl border border-slate-100">
+                        <Activity className="h-4 w-4 text-primary" />
+                        <span className="text-sm tracking-wide uppercase">Confidence Score: {result.probability}%</span>
+                      </div>
+                    </div>
+                    <CardTitle className="text-3xl font-bold text-slate-900 group-hover:text-primary transition-colors flex items-center gap-3">
+                      {result.disease}
+                      <ArrowRight className="h-6 w-6 text-primary opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300" />
+                    </CardTitle>
+                  </CardHeader>
+                  
+                  <CardContent className="px-8 pb-8 space-y-8">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm font-bold text-slate-500 uppercase tracking-widest">
+                        <span>Analysis Probability</span>
+                        <span>{result.probability}%</span>
+                      </div>
+                      <Progress 
+                        value={result.probability} 
+                        className={`h-2.5 rounded-full ${
+                          result.severity === "severe" ? "bg-slate-100 [&>div]:bg-destructive" : 
+                          result.severity === "moderate" ? "bg-slate-100 [&>div]:bg-orange-500" : 
+                          "bg-slate-100 [&>div]:bg-emerald-500"
+                        }`}
+                      />
+                    </div>
+                    
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-3 p-6 rounded-2xl bg-slate-50 border border-slate-100/50">
+                        <h4 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
+                          <Info className="h-5 w-5 text-primary" /> Clinical Description
+                        </h4>
+                        <p className="text-slate-600 leading-relaxed font-medium">
+                          {result.description}
+                        </p>
+                      </div>
+                      <div className="space-y-3 p-6 rounded-2xl bg-primary/5 border border-primary/10">
+                        <h4 className="font-bold text-primary flex items-center gap-2 text-lg">
+                          <CheckCircle className="h-5 w-5 text-primary" /> Next Steps & Advice
+                        </h4>
+                        <p className="text-slate-600 leading-relaxed font-medium">
+                          {result.recommendation}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="flex flex-col md:flex-row items-center gap-6 rounded-3xl border-2 border-warning/20 bg-warning/5 p-10 shadow-lg relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-warning/10 rounded-full -translate-y-12 translate-x-12 blur-2xl group-hover:scale-150 transition-transform duration-700" />
+              <div className="h-16 w-16 shrink-0 rounded-2xl bg-warning/20 flex items-center justify-center">
+                <ShieldAlert className="h-8 w-8 text-warning" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-xl font-bold text-warning-700 flex items-center gap-2">
+                  Medical Disclaimer
+                </h3>
+                <p className="text-slate-600 text-lg leading-relaxed font-medium">
+                  {disclaimer || "This AI tool is for educational purposes only. It cannot replace a professional medical consultation. If you are experiencing an emergency, please contact 911 or visit your nearest emergency room immediately."}
+                </p>
+              </div>
+            </div>
+
+            <Card className="rounded-3xl border-none shadow-premium bg-slate-900 text-white overflow-hidden p-8 md:p-12 relative">
+               <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full translate-x-32 -translate-y-32 blur-3xl" />
+               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+                  <div className="space-y-4">
+                    <h3 className="text-3xl font-bold items-center gap-2">Ready to talk to a professional?</h3>
+                    <p className="text-slate-300 text-lg max-w-lg">
+                      Our health assistants are available 24/7 to provide more detailed context and personalized support.
+                    </p>
+                  </div>
+                  <Button size="lg" className="h-16 px-10 rounded-2xl text-lg font-bold bg-white text-slate-900 hover:bg-slate-100 flex items-center gap-3">
+                    Consult an Assistant <ChevronRight className="h-5 w-5" />
+                  </Button>
+               </div>
+            </Card>
           </div>
         )}
       </div>
-      <HealthChatComponent context={{ symptoms, results }} />
+      <HealthChatComponent context={{ symptoms, analysis: JSON.stringify(analysisResults) }} />
     </MainLayout>
   );
 };

@@ -3,7 +3,7 @@ const https = require('https');
 
 function testGemini() {
   const apiKey = "AIzaSyCiHQxxRafrhyDeXQEGwwUiRKP8RaASqMM";
-  const model = "gemini-2.5-flash"; // Trying the model used in the code
+  const model = "gemini-1.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   
   const data = JSON.stringify({

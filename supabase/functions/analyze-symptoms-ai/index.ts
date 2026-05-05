@@ -20,30 +20,28 @@ serve(async (req) => {
     }
 
     // Securely retrieve the key from environment secrets
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
     
-    if (!GEMINI_API_KEY) {
-      console.error("Missing GEMINI_API_KEY environment variable");
+    if (!GROQ_API_KEY) {
+      console.error("Missing GROQ_API_KEY environment variable");
       return new Response(JSON.stringify({ error: "AI service is not configured correctly." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `Analyze these symptoms and provide possible conditions: ${symptoms.trim()}`
-          }]
-        }],
-        systemInstruction: {
-          parts: [{
-            text: `You are a medical assistant AI. Based on the symptoms provided, suggest the top 3-5 possible conditions with probability percentages and brief explanations. 
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: `You are a medical assistant AI. Based on the symptoms provided, suggest the top 3-5 possible conditions with probability percentages and brief explanations. 
 
 IMPORTANT: You must respond with ONLY a valid JSON array, no markdown, no code blocks.
 
@@ -59,8 +57,12 @@ Format:
 ]
 
 Disclaimer: This is for informational purposes only and not a medical diagnosis. Always consult a healthcare professional.`
-          }]
-        }
+          },
+          {
+            role: "user",
+            content: `Analyze these symptoms and provide possible conditions: ${symptoms.trim()}`
+          }
+        ]
       }),
     });
 
@@ -83,7 +85,7 @@ Disclaimer: This is for informational purposes only and not a medical diagnosis.
     }
 
     const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const content = data.choices?.[0]?.message?.content;
 
     if (!content) {
       return new Response(JSON.stringify({ error: "No response from AI" }), {

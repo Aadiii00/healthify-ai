@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { HealthChatComponent } from "@/components/HealthChatComponent";
+import { useGroqAI } from "@/hooks/useGroqAI";
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ConditionResult {
   disease: string;
@@ -45,8 +48,9 @@ const SymptomCheckerPage = () => {
   const [symptoms, setSymptoms] = useState("");
   const [analysisResults, setAnalysisResults] = useState<ConditionResult[] | null>(null);
   const [disclaimer, setDisclaimer] = useState("");
-  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const { generateCompletion, loading } = useGroqAI();
+  const { user, patientId } = useAuth();
 
   const toggleSymptom = (s: string) => {
     const current = symptoms.split(",").map(x => x.trim()).filter(Boolean);
@@ -59,37 +63,58 @@ const SymptomCheckerPage = () => {
 
   const analyze = async () => {
     if (!symptoms.trim()) {
-      toast({ title: "Please enter symptoms", variant: "destructive" });
+      toast({ title: "Please enter your symptoms", variant: "destructive" });
       return;
     }
-    setLoading(true);
     setAnalysisResults(null);
     try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symptoms: symptoms.trim() }),
-      });
+      const content = await generateCompletion([
+        {
+          role: "system",
+          content: `You are a medical assistant AI. Based on the symptoms provided, suggest the top 3-5 possible conditions with probability percentages and brief explanations. 
 
-      if (!response.ok) {
-        throw new Error(`API failed with status ${response.status}`);
-      }
+IMPORTANT: You must respond with ONLY a valid JSON array, no markdown, no code blocks.
 
-      const data: AnalysisResponse = await response.json();
+Format:
+[
+  {
+    "disease": "Disease Name",
+    "probability": 85,
+    "description": "Brief medical explanation",
+    "severity": "mild|moderate|severe",
+    "recommendation": "Brief recommendation for the patient"
+  }
+]
+
+Disclaimer: This is for informational purposes only and not a medical diagnosis. Always consult a healthcare professional.`
+        },
+        {
+          role: "user",
+          content: `Analyze these symptoms and provide possible conditions: ${symptoms.trim()}`
+        }
+      ]);
+
+      // Parse the JSON from the AI response
+      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const results = JSON.parse(cleaned);
       
-      if (data.error) {
-        toast({ title: "Validation Error", description: data.error, variant: "destructive" });
-      } else {
-        setAnalysisResults(data.results);
-        setDisclaimer(data.disclaimer);
-        toast({ title: "Analysis Complete", description: "AI has successfully analyzed your symptoms." });
+      setAnalysisResults(results);
+      setDisclaimer("This is an AI-powered analysis for informational purposes only. Please consult a healthcare professional for proper diagnosis.");
+      
+      // Save the analysis to Supabase
+      if (patientId) {
+        await supabase.from("medical_records").insert({
+          patient_id: patientId,
+          diagnosis: "AI Preliminary Analysis",
+          notes: `Symptoms reported: ${symptoms.trim()}\n\nAI Findings: ${JSON.stringify(results, null, 2)}`,
+        });
       }
+
+      toast({ title: "Analysis Complete", description: "AI has successfully analyzed your symptoms and saved the record." });
 
     } catch (err: any) {
       console.error("Analysis Error:", err);
       toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
     }
   };
 

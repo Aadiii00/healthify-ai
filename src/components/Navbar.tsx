@@ -34,6 +34,9 @@ export const Navbar = () => {
               <Link to="/symptom-checker">
                 <Button variant="ghost" size="sm">Symptom Checker</Button>
               </Link>
+              <Link to="/nutrition-planner">
+                <Button variant="ghost" size="sm">Diet Planner</Button>
+              </Link>
               {role === "patient" && (
                 <Link to="/appointments">
                   <Button variant="ghost" size="sm">Appointments</Button>
@@ -74,6 +77,9 @@ export const Navbar = () => {
                 </Link>
                 <Link to="/symptom-checker" onClick={() => setOpen(false)}>
                   <Button variant="ghost" className="w-full justify-start">Symptom Checker</Button>
+                </Link>
+                <Link to="/nutrition-planner" onClick={() => setOpen(false)}>
+                  <Button variant="ghost" className="w-full justify-start">Diet Planner</Button>
                 </Link>
                 <Link to="/appointments" onClick={() => setOpen(false)}>
                   <Button variant="ghost" className="w-full justify-start">Appointments</Button>

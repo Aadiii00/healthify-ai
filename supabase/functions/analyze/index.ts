@@ -27,10 +27,10 @@ serve(async (req) => {
     }
 
     // Retrieve key from Supabase secrets
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
     
-    if (!GEMINI_API_KEY) {
-      console.error("Missing GEMINI_API_KEY environment variable");
+    if (!GROQ_API_KEY) {
+      console.error("Missing GROQ_API_KEY environment variable");
       return new Response(
         JSON.stringify({ error: "Server Configuration Error", detail: "Internal AI gateway key is not set." }),
         { 
@@ -41,20 +41,19 @@ serve(async (req) => {
     }
     
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      "https://api.groq.com/openai/v1/chat/completions",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${GROQ_API_KEY}`
         },
         body: JSON.stringify({
-          contents: [
+          model: "llama-3.1-8b-instant",
+          messages: [
             {
-              parts: [
-                {
-                  text: "Analyze these symptoms medically and give possible causes and advice: " + symptoms
-                }
-              ]
+              role: "user",
+              content: "Analyze these symptoms medically and give possible causes and advice: " + symptoms
             }
           ]
         })
@@ -64,10 +63,10 @@ serve(async (req) => {
     // 4. Handle errors properly
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Gemini API Error (Status ${response.status}):`, errorText);
-      console.error(`Key used (first 5): ${GEMINI_API_KEY.substring(0, 5)}`);
+      console.error(`Groq API Error (Status ${response.status}):`, errorText);
+      console.error(`Key used (first 5): ${GROQ_API_KEY.substring(0, 5)}`);
       return new Response(
-        JSON.stringify({ error: "Gemini API failed", detail: errorText }),
+        JSON.stringify({ error: "Groq API failed", detail: errorText }),
         { 
           status: 500, 
           headers: { ...corsHeaders, "Content-Type": "application/json" } 
@@ -76,7 +75,7 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No analysis available.";
+    const aiText = data.choices?.[0]?.message?.content || "No analysis available.";
 
     // 5. Return response format
     // 8. Always return status 200 on success

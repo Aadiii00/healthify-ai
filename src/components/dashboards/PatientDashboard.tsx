@@ -19,6 +19,7 @@ import {
   Droplets, MessageSquare, Send, Award, ArrowRight, Save, Loader2, Star
 } from "lucide-react";
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
+import { useGroqAI, GroqMessage } from "@/hooks/useGroqAI";
 
 const DAILY_TIPS = [
   "Stay hydrated: Drink at least 8 glasses of water today.",
@@ -58,7 +59,7 @@ export const PatientDashboard = () => {
     { role: "ai", content: "Hi! I'm your Healthify AI assistant. How can I help you today?" }
   ]);
   const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
+  const { generateCompletion, loading: chatLoading } = useGroqAI();
 
   useEffect(() => {
     if (!patientId) return;
@@ -162,16 +163,24 @@ export const PatientDashboard = () => {
 
   const handleSaveProfile = async () => {
     setIsSavingProfile(true);
-    const splitConds = profile.medical_conditions.split(",").map(c => c.trim()).filter(c => c);
+    // Split the comma-separated string into a Postgres array format for Supabase
+    const splitConds = profile.medical_conditions
+      ? profile.medical_conditions.split(",").map(c => c.trim()).filter(Boolean)
+      : [];
+      
     const { error } = await supabase.from("patients").update({
       weight_kg: profile.weight_kg ? parseFloat(profile.weight_kg) : null,
       height_cm: profile.height_cm ? parseFloat(profile.height_cm) : null,
-      blood_type: profile.blood_type,
+      blood_type: profile.blood_type || null,
       medical_conditions: splitConds
     }).eq("id", patientId);
     
-    if (error) toast({ title: "Error saving profile", variant: "destructive" });
-    else toast({ title: "Health Profile Updated!" });
+    if (error) {
+      console.error(error);
+      toast({ title: "Error saving profile", variant: "destructive" });
+    } else {
+      toast({ title: "Health Profile Updated!" });
+    }
     setIsSavingProfile(false);
   };
 
@@ -299,17 +308,27 @@ export const PatientDashboard = () => {
     const userMsg = { role: "user" as const, content: chatInput };
     setMessages(prev => [...prev, userMsg]);
     setChatInput("");
-    setChatLoading(true);
+    const systemPrompt = `You are MediCheck AI, a helpful and professional health assistant. 
+    The user is asking questions about their health.
+    
+    Provide concise, helpful, and empathetic health advice. 
+    ALWAYS remind the user that you are an AI and not a doctor.
+    If symptoms sound serious (breathing difficulty, chest pain, etc.), STRONGLY advise seeking immediate medical attention.`;
+
+    const formattedMessages: GroqMessage[] = [
+      { role: "system", content: systemPrompt },
+      ...[...messages, userMsg].map(m => ({
+        role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: m.content
+      }))
+    ];
+
     try {
-      const { data, error } = await supabase.functions.invoke("ai-health-chat", {
-        body: { messages: [...messages, userMsg] },
-      });
-      if (error) throw error;
-      setMessages(prev => [...prev, { role: "ai", content: data.reply }]);
+      const reply = await generateCompletion(formattedMessages);
+      setMessages(prev => [...prev, { role: "ai", content: reply }]);
     } catch (err) {
+      console.error(err);
       setMessages(prev => [...prev, { role: "ai", content: "Sorry, I'm adjusting my systems. Please try again." }]);
-    } finally {
-      setChatLoading(false);
     }
   };
 

@@ -22,25 +22,29 @@ serve(async (req) => {
     If symptoms sound serious (breathing difficulty, chest pain, etc.), STRONGLY advise seeking immediate medical attention.`;
 
     // Securely retrieve key from environment
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
     
-    if (!GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY is not configured in Supabase secrets");
+    if (!GROQ_API_KEY) {
+      console.error("GROQ_API_KEY is not configured in Supabase secrets");
       return new Response(JSON.stringify({ error: "AI Service Configuration Error" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`
+      },
       body: JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: systemPrompt }] },
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: systemPrompt },
           ...messages.map((m: any) => ({
-            role: m.role === "user" ? "user" : "model",
-            parts: [{ text: m.content }]
+            role: m.role === "user" ? "user" : "assistant",
+            content: m.content
           }))
         ],
       }),
@@ -49,7 +53,7 @@ serve(async (req) => {
     if (!response.ok) throw new Error(`AI gateway error: ${response.status}`);
     
     const data = await response.json();
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const reply = data.choices?.[0]?.message?.content;
 
     return new Response(JSON.stringify({ reply }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

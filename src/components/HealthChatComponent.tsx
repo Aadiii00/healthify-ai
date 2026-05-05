@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { useGroqAI } from "@/hooks/useGroqAI";
+import { GroqMessage } from "@/hooks/useGroqAI";
 
 interface Message {
   role: "user" | "ai";
@@ -16,7 +18,7 @@ export const HealthChatComponent = ({ context }: { context?: any }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { generateCompletion, loading } = useGroqAI();
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -24,20 +26,28 @@ export const HealthChatComponent = ({ context }: { context?: any }) => {
     const userMsg: Message = { role: "user", content: input };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
-    setLoading(true);
+    const systemPrompt = `You are MediCheck AI, a helpful and professional health assistant. 
+    The user is asking follow-up questions about their recent symptom analysis.
+    Context from analysis: ${JSON.stringify(context)}
+    
+    Provide concise, helpful, and empathetic health advice. 
+    ALWAYS remind the user that you are an AI and not a doctor.
+    If symptoms sound serious (breathing difficulty, chest pain, etc.), STRONGLY advise seeking immediate medical attention.`;
+
+    const formattedMessages: GroqMessage[] = [
+      { role: "system", content: systemPrompt },
+      ...[...messages, userMsg].map(m => ({
+        role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: m.content
+      }))
+    ];
 
     try {
-      const { data, error } = await supabase.functions.invoke("ai-health-chat", {
-        body: { messages: [...messages, userMsg], context },
-      });
-
-      if (error) throw error;
-      setMessages(prev => [...prev, { role: "ai", content: data.reply }]);
+      const reply = await generateCompletion(formattedMessages);
+      setMessages(prev => [...prev, { role: "ai", content: reply }]);
     } catch (err: any) {
       console.error("Chat error:", err);
       setMessages(prev => [...prev, { role: "ai", content: "I'm sorry, I'm having trouble connecting right now. Please try again later." }]);
-    } finally {
-      setLoading(false);
     }
   };
 

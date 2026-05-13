@@ -43,25 +43,47 @@ export const NutritionPlannerPage = () => {
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-    const fetchProfile = async () => {
+    if (!user || !patientId) return;
+    const fetchData = async () => {
       try {
-        const { data, error } = await supabase
+        // Fetch patient profile
+        const { data: profData, error: profError } = await supabase
           .from("patients")
           .select("weight_kg, height_cm, medical_conditions")
-          .eq("id", user.id)
+          .eq("id", patientId)
           .single();
         
-        if (error) throw error;
-        setProfile(data);
+        if (profError) throw profError;
+        if (profData) {
+          setProfile({
+            weight_kg: profData.weight_kg,
+            height_cm: profData.height_cm,
+            // Format array to string for display if needed
+            medical_conditions: Array.isArray(profData.medical_conditions) ? profData.medical_conditions.join(", ") : profData.medical_conditions
+          });
+        }
+
+        // Fetch latest meal plan
+        const { data: planData, error: planError } = await supabase
+          .from("meal_plans")
+          .select("goal, plan_data")
+          .eq("patient_id", patientId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (planData) {
+          setGoal(planData.goal || "");
+          setMealPlan(planData.plan_data as DailyPlan[]);
+        }
       } catch (err: any) {
-        console.error("Error fetching profile:", err);
+        console.error("Error fetching data:", err);
       } finally {
         setLoadingProfile(false);
       }
     };
-    fetchProfile();
-  }, [user]);
+    fetchData();
+  }, [user, patientId]);
 
   const generatePlan = async () => {
     if (!goal.trim()) {

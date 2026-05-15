@@ -26,12 +26,16 @@ interface Appointment {
   doctors: { full_name: string; specialty: string } | null;
 }
 
+const AVAILABLE_SLOTS = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
+
 const AppointmentsPage = () => {
   const { patientId, user } = useAuth();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState("");
   const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -39,6 +43,38 @@ const AppointmentsPage = () => {
     fetchDoctors();
     if (patientId) fetchAppointments();
   }, [patientId]);
+
+  useEffect(() => {
+    if (selectedDoctor && date) {
+      fetchBookedSlots();
+    } else {
+      setBookedSlots([]);
+      setTime("");
+    }
+  }, [selectedDoctor, date]);
+
+  const fetchBookedSlots = async () => {
+    // Create UTC bounds for the selected local date
+    const localDate = new Date(date + 'T00:00:00');
+    const nextDate = new Date(localDate);
+    nextDate.setDate(localDate.getDate() + 1);
+
+    const { data } = await supabase
+      .from("appointments")
+      .select("appointment_date")
+      .eq("doctor_id", selectedDoctor)
+      .gte("appointment_date", localDate.toISOString())
+      .lt("appointment_date", nextDate.toISOString())
+      .neq("status", "cancelled");
+
+    if (data) {
+      const booked = data.map(a => {
+        const d = new Date(a.appointment_date);
+        return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+      });
+      setBookedSlots(booked);
+    }
+  };
 
   const fetchDoctors = async () => {
     const { data } = await supabase.from("doctors").select("id, full_name, specialty, experience_years, rating");
@@ -65,13 +101,15 @@ const AppointmentsPage = () => {
 
   const bookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!patientId || !selectedDoctor || !date) return;
+    if (!patientId || !selectedDoctor || !date || !time) return;
     setLoading(true);
     try {
+      const appointmentDateTime = new Date(`${date}T${time}:00`);
+
       const { error } = await supabase.from("appointments").insert({
         patient_id: patientId,
         doctor_id: selectedDoctor,
-        appointment_date: new Date(date).toISOString(),
+        appointment_date: appointmentDateTime.toISOString(),
         status: "pending",
       });
       if (error) throw error;
@@ -79,13 +117,14 @@ const AppointmentsPage = () => {
 
       // Send WhatsApp Notification
       const selectedDoc = doctors.find(d => d.id === selectedDoctor);
-      const formattedDate = new Date(date).toLocaleString("en-US", {
+      const formattedDate = appointmentDateTime.toLocaleString("en-US", {
         weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
       });
       sendNotification(RECIPIENT_PHONE, `Your appointment is confirmed with Dr. ${selectedDoc?.name || "Specialist"} on ${formattedDate}.`, user?.email || "user@gmail.com");
 
       setSelectedDoctor("");
       setDate("");
+      setTime("");
       fetchAppointments();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -160,11 +199,36 @@ const AppointmentsPage = () => {
                     ))}
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Date & Time</Label>
-                  <Input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} required />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} min={new Date().toISOString().split('T')[0]} required />
+                  </div>
+
+                  {date && selectedDoctor && (
+                    <div className="space-y-2">
+                      <Label>Available Times</Label>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {AVAILABLE_SLOTS.map(slot => {
+                          const isBooked = bookedSlots.includes(slot);
+                          return (
+                            <Button
+                              key={slot}
+                              type="button"
+                              variant={time === slot ? "default" : "outline"}
+                              className={isBooked ? "opacity-50 cursor-not-allowed" : ""}
+                              disabled={isBooked}
+                              onClick={() => setTime(slot)}
+                            >
+                              {slot}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button type="submit" className="w-full" disabled={loading || !date || !time || !selectedDoctor}>
                   {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Calendar className="mr-2 h-4 w-4" />}
                   Book Appointment
                 </Button>
